@@ -18,27 +18,16 @@
 
 import * as vscode from 'vscode';
 import * as manifest from '../manifest';
-import { parseStringPromise } from 'xml2js';
 import { BaseNode, PeripheralBaseNode } from './nodes/basenode';
 import { PeripheralNode } from './nodes/peripheralnode';
 import { MessageNode } from './nodes/messagenode';
 import { NodeSetting } from '../common';
-import { SvdData, SVDParser } from '../svd-parser';
 import { AddrRange } from '../addrranges';
 import { DebugTracker } from '../debug-tracker';
-import { SvdResolver } from '../svd-resolver';
-import { readFromUrl } from '../utils';
 import { uriExists } from '../vscode-utils';
+import { PeripheralsProvider } from '../peripherals-provider';
 
 const STATE_FILENAME = '.svd-viewer.json';
-
-const pathToUri = (path: string): vscode.Uri => {
-    try {
-        return vscode.Uri.file(path);
-    } catch (e) {
-        return vscode.Uri.parse(path);
-    }
-};
 
 export class PeripheralTreeForSession extends PeripheralBaseNode {
     public myTreeItem: vscode.TreeItem;
@@ -102,47 +91,6 @@ export class PeripheralTreeForSession extends PeripheralBaseNode {
         return state;
     }
 
-    private async createPeripherals(svdPath: string, gapThreshold: number): Promise<void> {
-        let svdData: SvdData | undefined;
-
-        try {
-            let contents: ArrayBuffer | undefined;
-
-            if (svdPath.startsWith('http')) {
-                contents = await readFromUrl(svdPath);
-            } else {
-                const uri = pathToUri(svdPath);
-                contents = await vscode.workspace.fs.readFile(uri);
-            }
-
-            if (contents) {
-                const decoder = new TextDecoder();
-                const xml = decoder.decode(contents);
-                svdData = await parseStringPromise(xml);
-            }
-        } catch(e) {
-            // eslint-disable-next-line no-console
-            console.warn(e);
-        }
-
-        if (!svdData) {
-            return;
-        }
-
-        this.errMessage = `Loading ${svdPath}`;
-
-        try {
-            this.peripherials = await SVDParser.parseSVD(this.session, svdData, gapThreshold);
-            this.loaded = true;
-        } catch(e) {
-            this.peripherials = [];
-            this.loaded = false;
-            throw e;
-        }
-
-        this.errMessage = '';
-    }
-
     public performUpdate(): Thenable<boolean> {
         throw new Error('Method not implemented.');
     }
@@ -197,20 +145,13 @@ export class PeripheralTreeForSession extends PeripheralBaseNode {
         return undefined;
     }
 
-    public async sessionStarted(svdPath: string, thresh: number): Promise<void> {        // Never rejects
-        if (((typeof thresh) === 'number') && (thresh < 0)) {
-            thresh = -1;     // Never merge register reads even if adjacent
-        } else {
-            // Set the threshold between 0 and 32, with a default of 16 and a mukltiple of 8
-            thresh = ((((typeof thresh) === 'number') ? Math.max(0, Math.min(thresh, 32)) : 16) + 7) & ~0x7;
-        }
+    public async sessionStarted(peripherals: PeripheralNode[]): Promise<void> {        // Never rejects
 
-        this.peripherials = [];
+        this.peripherials = peripherals;
+        this.loaded = !!peripherals?.length;
         this.fireCb();
 
         try {
-            await this.createPeripherals(svdPath, thresh);
-
             const settings = await this.loadSvdState();
             settings.forEach((s: NodeSetting) => {
                 const node = this.findNodeByPath(s.node);
@@ -225,7 +166,7 @@ export class PeripheralTreeForSession extends PeripheralBaseNode {
             this.peripherials.sort(PeripheralNode.compare);
             this.fireCb();
         } catch(e) {
-            this.errMessage = `Unable to parse SVD file ${svdPath}: ${(e as Error).message}`;
+            this.errMessage = `Error occured on SVD viewer loading: ${(e as Error).message}`;
             vscode.window.showErrorMessage(this.errMessage);
             if (vscode.debug.activeDebugConsole) {
                 vscode.debug.activeDebugConsole.appendLine(this.errMessage);
@@ -252,7 +193,7 @@ export class PeripheralTreeProvider implements vscode.TreeDataProvider<Periphera
     protected sessionPeripheralsMap = new Map <string, PeripheralTreeForSession>();
     protected oldState = new Map <string, vscode.TreeItemCollapsibleState>();
 
-    constructor(tracker: DebugTracker, protected resolver: SvdResolver) {
+    constructor(tracker: DebugTracker, protected provider: PeripheralsProvider) {
         tracker.onWillStartSession(session => this.debugSessionStarted(session));
         tracker.onWillStopSession(session => this.debugSessionTerminated(session));
         tracker.onDidStopDebug(session => this.debugStopped(session));
@@ -312,9 +253,9 @@ export class PeripheralTreeProvider implements vscode.TreeDataProvider<Periphera
 
     public async debugSessionStarted(session: vscode.DebugSession): Promise<void> {
         const wsFolderPath = session.workspaceFolder ? session.workspaceFolder.uri : vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0].uri;
-        const svdPath = await this.resolver.resolve(session, wsFolderPath);
+        const peripherals = await this.provider.getPeripherals(session, wsFolderPath);
 
-        if (!svdPath) {
+        if (!peripherals) {
             return;
         }
 
@@ -333,14 +274,9 @@ export class PeripheralTreeProvider implements vscode.TreeDataProvider<Periphera
         });
 
         this.sessionPeripheralsMap.set(session.id, regs);
-        let thresh = session.configuration[manifest.CONFIG_ADDRGAP];
-
-        if (!thresh) {
-            thresh = vscode.workspace.getConfiguration(manifest.PACKAGE_NAME).get<number>(manifest.CONFIG_ADDRGAP) || manifest.DEFAULT_ADDRGAP;
-        }
 
         try {
-            await regs.sessionStarted(svdPath, thresh);     // Should never reject
+            await regs.sessionStarted(peripherals);     // Should never reject
         } catch (e) {
             vscode.window.showErrorMessage(`Internal Error: Unexpected rejection of promise ${e}`);
         } finally {
