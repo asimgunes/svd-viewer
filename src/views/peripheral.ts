@@ -24,10 +24,18 @@ import { MessageNode } from './nodes/messagenode';
 import { NodeSetting } from '../common';
 import { AddrRange } from '../addrranges';
 import { DebugTracker } from '../debug-tracker';
-import { uriExists } from '../vscode-utils';
 import { PeripheralsProvider } from '../peripherals-provider';
 
 const STATE_FILENAME = '.svd-viewer.json';
+
+const uriExists = async (uri: vscode.Uri): Promise<boolean> => {
+    try {
+        await vscode.workspace.fs.stat(uri);
+        return true;
+    } catch {
+        return false;
+    }
+};
 
 export class PeripheralTreeForSession extends PeripheralBaseNode {
     public myTreeItem: vscode.TreeItem;
