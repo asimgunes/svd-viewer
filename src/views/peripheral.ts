@@ -53,6 +53,11 @@ export class PeripheralTreeForSession extends PeripheralBaseNode {
     }
 
     private async loadSvdState(): Promise<NodeSetting[]> {
+        const saveLayout = vscode.workspace.getConfiguration(manifest.PACKAGE_NAME).get<boolean>(manifest.CONFIG_SAVE_LAYOUT);
+        if (!saveLayout) {
+            return [];
+        }
+
         const stateUri = this.getSvdStateUri();
         if (stateUri) {
             const exists = await uriExists(stateUri);
@@ -69,6 +74,11 @@ export class PeripheralTreeForSession extends PeripheralBaseNode {
     }
 
     private async saveSvdState(state: NodeSetting[]): Promise<void> {
+        const saveLayout = vscode.workspace.getConfiguration(manifest.PACKAGE_NAME).get<boolean>(manifest.CONFIG_SAVE_LAYOUT);
+        if (!saveLayout) {
+            return;
+        }
+
         const stateUri = this.getSvdStateUri();
         if (stateUri) {
             try {
@@ -187,6 +197,8 @@ export class PeripheralTreeForSession extends PeripheralBaseNode {
 }
 
 export class PeripheralTreeProvider implements vscode.TreeDataProvider<PeripheralBaseNode> {
+    public static viewName = `${manifest.PACKAGE_NAME}.svd`;
+
     // tslint:disable-next-line:variable-name
     public _onDidChangeTreeData: vscode.EventEmitter<PeripheralBaseNode | undefined> = new vscode.EventEmitter<PeripheralBaseNode | undefined>();
     public readonly onDidChangeTreeData: vscode.Event<PeripheralBaseNode | undefined> = this._onDidChangeTreeData.event;
@@ -200,7 +212,7 @@ export class PeripheralTreeProvider implements vscode.TreeDataProvider<Periphera
     }
 
     public async activate(context: vscode.ExtensionContext): Promise<void> {
-        const view = vscode.window.createTreeView(`${manifest.PACKAGE_NAME}.svd`, { treeDataProvider: this });
+        const view = vscode.window.createTreeView(PeripheralTreeProvider.viewName, { treeDataProvider: this });
         context.subscriptions.push(
             view,
             view.onDidExpandElement((e) => {
@@ -231,7 +243,7 @@ export class PeripheralTreeProvider implements vscode.TreeDataProvider<Periphera
     }
 
     public collapseAll(): void {
-        vscode.commands.executeCommand(`workbench.actions.treeView.${manifest.PACKAGE_NAME}.svd.collapseAll`);
+        vscode.commands.executeCommand(`workbench.actions.treeView.${PeripheralTreeProvider.viewName}.collapseAll`);
     }
 
     public getTreeItem(element: PeripheralBaseNode): vscode.TreeItem | Promise<vscode.TreeItem> {
@@ -283,7 +295,7 @@ export class PeripheralTreeProvider implements vscode.TreeDataProvider<Periphera
             this._onDidChangeTreeData.fire(undefined);
         }
 
-        vscode.commands.executeCommand('setContext', `${manifest.PACKAGE_NAME}.svd.hasData`, this.sessionPeripheralsMap.size > 0);
+        vscode.commands.executeCommand('setContext', `${PeripheralTreeProvider.viewName}.hasData`, this.sessionPeripheralsMap.size > 0);
     }
 
     public debugSessionTerminated(session: vscode.DebugSession): void {
@@ -296,7 +308,7 @@ export class PeripheralTreeProvider implements vscode.TreeDataProvider<Periphera
             this._onDidChangeTreeData.fire(undefined);
         }
 
-        vscode.commands.executeCommand('setContext', `${manifest.PACKAGE_NAME}.svd.hasData`, this.sessionPeripheralsMap.size > 0);
+        vscode.commands.executeCommand('setContext', `${PeripheralTreeProvider.viewName}.hasData`, this.sessionPeripheralsMap.size > 0);
     }
 
     public debugStopped(session: vscode.DebugSession): void {

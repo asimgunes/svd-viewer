@@ -15,3 +15,4 @@ export const CONFIG_ASSET_PATH = 'packAssetUrl';
 export const DEFAULT_ASSET_PATH = 'https://pack-asset-service.keil.arm.com';
 export const CONFIG_GET_PERIPHERALS = 'getPeripheralsConfig';
 export const DEFAULT_GET_PERIPHERALS = 'getPeripherals';
+export const CONFIG_SAVE_LAYOUT = 'saveLayout';
